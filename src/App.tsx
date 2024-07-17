@@ -26,19 +26,15 @@ interface FileData {
 }
 
 const getMeasureSvg = () => {
-  const svg = d3.select(document.body).select('svg.measure');
+  const svg = d3.select<SVGSVGElement, any>('svg#measure');
   if (!svg.empty()) {
     return svg;
   }
 
-  return d3 //
-    .select(document.body)
-    .append('svg')
-    .attr('class', 'measure')
-    .attr('visibility', 'hidden');
+  throw new Error('measure failed');
 };
 
-const getMeasureTextNode = (): d3.Selection<SVGTextElement, unknown, null, undefined> => {
+const getMeasureTextNode = (): d3.Selection<SVGTextElement, unknown, HTMLElement, undefined> => {
   const svg = getMeasureSvg();
   const text = svg.select<SVGTextElement>('&>text');
   if (!text.empty()) {
@@ -171,6 +167,19 @@ const createFileDatas = (filePaths: string[]) => {
   };
 };
 
+const getFitLayout = (files: FileData[]) => {
+  let width = 0;
+  let height = 0;
+  files.forEach((file) => {
+    const nextWidth = file.x + measureTextWidth(file.base) + 40 + 40;
+    width = Math.max(width, nextWidth);
+    const nextHeight = file.y + 32 + 40;
+    height = Math.max(height, nextHeight);
+  });
+
+  return { width, height };
+};
+
 const File = memo((props: { data: FileData }) => {
   const { data } = props;
   const type = data.type ?? FileType.Unknown;
@@ -289,20 +298,21 @@ export function App() {
   const [levelOffset, setLevelOffset] = useState<number[]>([]);
   const [layout, setLayout] = useState({ width: 0, height: 0 });
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  const mainBoardRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
+  const zoomRef = useRef<any>();
   useEffect(() => {
     if (!svgRef.current) {
       return;
     }
     const svg = d3.select(svgRef.current);
     const root = svg.select('g#root');
-    svg.call(
-      d3.zoom<SVGSVGElement, any>().on('zoom', (e) => {
-        root.attr('transform', e.transform);
-      }),
-    );
+
+    zoomRef.current = d3.zoom<SVGSVGElement, any>().on('zoom', (e) => {
+      root.attr('transform', e.transform);
+    });
+    svg.call(zoomRef.current);
   }, []);
 
   useEffect(() => {
@@ -350,34 +360,37 @@ export function App() {
       'src/store/user.ts',
     ]);
 
-    let x = 0;
-    let y = 0;
-    files.forEach((file) => {
-      x = Math.max(x, file.x);
-      y = Math.max(y, file.y);
-    });
-
-    setLayout({ width: x, height: y });
-    console.log({ width: x, height: y });
+    setLayout(getFitLayout(files));
     setFiles(files);
     setLevelOffset(levelOffset);
   }, []);
 
+  const resetTransform = () => {
+    d3.select(svgRef.current) //
+      .transition()
+      .duration(500)
+      .call(zoomRef.current.transform, d3.zoomIdentity);
+  };
+
   return (
     <div className={styles.AppContainer}>
-      <div ref={containerRef} className={styles.container}>
-        <svg
-          ref={svgRef}
-          width={'100%'}
-          height={'100%'}
-          viewBox={`-20 -20 ${layout.width + 100} ${layout.height + 100}`}
-        >
+      <div ref={mainBoardRef} className={styles.mainBoard}>
+        <svg ref={svgRef} width={'100%'} height={'100%'} viewBox={`-20 -20 ${layout.width} ${layout.height}`}>
           <g id="root">
+            {/* 基层画布 */}
             {files.map((file) => {
               return <File key={file.path} data={file} />;
             })}
+            {/* 关联关系 */}
+            <g id="refs"></g>
           </g>
         </svg>
+        <svg id="measure" width={0} height={0} visibility="hidden"></svg>
+        <div className={styles.mainBoardController}>
+          <div className={styles.btn} onClick={resetTransform}>
+            +
+          </div>
+        </div>
       </div>
     </div>
   );
